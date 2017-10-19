@@ -1,235 +1,192 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, Arrows #-}
 
 module Main (main) where
 
-import qualified SDL
-import qualified Lib as C -- Common
+import Control.Concurrent (newMVar, swapMVar)
+import Control.Monad
+import Data.Text (Text)
+import Foreign.C.Types
+import FRP.Yampa as Yampa
+import SDL
+-- import SDL.Input.Keyboard.Codes
+import Linear (V4(..), V2(..))
 
-import Control.Monad.Loops    (iterateUntilM)
-import Data.Foldable          (foldl')
+import Input
 
+-- import Types (Game, SenseInput, RenderOutput) -- TODO
 
-data Intent
-  = Idle
-  | Quit
-  | Press Quadrant
-  | Release Quadrant
-  | Hover Quadrant
-  | Leave Quadrant
+data Game = Game {clipPos :: Double}
+  deriving Show
 
+-- doesnt SenseInput need to give current game state?
+-- AKA wtf do signal functions do.
+type SenseInput = Yampa.Event SDL.EventPayload
 
-data World = World
-  { exiting :: Bool
-  , panes   :: PaneMap
-  }
-
-
-data PaneMap = PaneMap
-  { topLeft     :: Pane
-  , topRight    :: Pane
-  , bottomLeft  :: Pane
-  , bottomRight :: Pane
-  }
+type RenderOutput = (Game, Bool)
 
 
-data Pane
-  = Out
-  | Over
-  | Down
-  | Up
+{-
+  ## Main Game Code ##
+  - currently 100% not working
+  - Need to flesh out senseInput
+  - Need to flesh out everything
+  - how do Signal Functions work?
+  - How should game state look?
+  - How should renderOutput argument look (time, ???)
+  -   Probably just a list of objects to render?
+  -   Or maybe the game state, that we need to turn into
+        A list of objects to render?
+        Depends on how SFs work I think
+  -
+-}
 
+openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
+openWindow title (sizeX, sizeY) = do
+  SDL.initializeAll -- SDL.initializeAll ??
+  SDL.HintRenderScaleQuality $= SDL.ScaleNearest -- hmmmm wat
 
-data Quadrant
-  = TopLeft
-  | TopRight
-  | BottomLeft
-  | BottomRight
+  window <- SDL.createWindow
+            title
+            SDL.defaultWindow { SDL.windowInitialSize = V2 sizeX sizeY,
+                                  SDL.windowOpenGL = Just SDL.defaultOpenGL }
+  SDL.showWindow window
+  -- TODO, why parens? What does this do. Is the _ <- necessary?
+  -- Maybe just void $ SDL.glCreateContext window
+  -- to throwaway the value.
+  --- FIXME dont we need to destroy the context at the end of use?
+  _ <- SDL.glCreateContext(window)
+  return window
 
+closeGame :: SDL.Window -> SDL.Renderer -> IO ()
+closeGame window renderer = do
+  SDL.destroyWindow window
+  SDL.destroyRenderer renderer
+  SDL.quit
 
-initialWorld :: World
-initialWorld = World
-  { exiting = False
-  , panes = initialPanes
-  }
+------ < Animation > ------
 
+animate :: Text -> (CInt, CInt) -> SF SenseInput RenderOutput -> IO ()
+animate title (width, height) sf = do
+  window <- openWindow title (width, height)
+  renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
 
-initialPanes :: PaneMap
-initialPanes = PaneMap
-  { topLeft     = Out
-  , topRight    = Out
-  , bottomLeft  = Out
-  , bottomRight = Out
-  }
+  -- learning haskell: could this be 2 lines?
+  -- t <- SDL.time
+  -- lastInteraction <- newMVar t
+  -- I think =<< just makes this more concise.
+  lastInteraction <- newMVar =<< SDL.time
 
+  -- let senseInput _ = do
+  --   polledEvent <- SDL.pollEvent -- pollEvent or pollEvents????
+  --   -- This will wrap the Event in a Just (return does that i think)
+  --   -- Event is a Yampa event, and youre giving it an SDL.EventPayload
+  --   -- Event is used becuase Yampas signal functions take Event.
+  --   -- (see Input.hs)
+  --   currentTime <- SDL.time
+  --   dt <- (currentTime -) <$> swapMVar lastInteraction currentTime
+  --   putStrLn $ "dt:: " ++ (show dt)
+  --   return (dt, Yampa.Event . SDL.eventPayload <$> polledEvent)
+
+  -- -- TODO: state should just be a collection of objects to render?
+  -- --  Maybe `state` type should be
+  -- --    (collection-to-render, bool-should-exit)
+  -- let renderOutput _ (state, shouldExit) = do
+  --   rendererDrawColor renderer $= V4 0 0 255 255
+  --   clear renderer
+  --   present renderer
+
+  reactimate
+    (return NoEvent)
+    (\_ -> do
+      polledEvent <- SDL.pollEvent
+      currentTime <- SDL.time
+      dt <- (currentTime -) <$> swapMVar lastInteraction currentTime
+      return (dt, Yampa.Event . SDL.eventPayload <$> polledEvent))
+    (\_ (state, shouldExit) -> do
+      SDL.rendererDrawColor renderer $= V4 0 0 255 255
+      SDL.clear renderer
+      SDL.present renderer
+      return shouldExit)
+    sf
+
+  -- reactimate
+  --   (return NoEvent)
+  --   senseInput
+  --   renderOutput
+  --   sf
+
+  closeGame window renderer
+
+------ < Input Handling > ------
+
+stateReleased :: Double -> SF AppInput Double
+stateReleased k0 = switch sf cont
+  where
+    sf = proc input -> do
+      timer <- constant k0 -< ()
+      zoomIn <- trigger -< input
+      returnA -< (timer, zoomIn `tag` timer) :: (Double, Yampa.Event Double)
+    cont x = stateTriggered (x) -- TODO: necessary parens?
+
+stateTriggered :: Double -> SF AppInput Double
+stateTriggered k0 = switch sf cont
+  where
+    sf = proc input -> do
+      timer <- (k0+) ^<< integral <<< constant 0.1 -< ()
+      zoomIn <- release -< input
+      returnA -< (timer, zoomIn `tag` timer) :: (Double, Yampa.Event Double)
+    cont x = stateReleased (x) -- TODO: necessary parens?
+
+trigger :: SF AppInput (Yampa.Event ())
+trigger =
+  proc input -> do
+    -- TODO: can these 2 line be swapped?
+    unTapHold <- keyPressedRepeat (SDL.ScancodeSpace, True) -< input
+    unTap <- keyPressed (SDL.ScancodeSpace) -< input
+    returnA -< lMerge unTap unTapHold -- cause the ordering here is weird
+
+release :: SF AppInput (Yampa.Event ())
+release =
+  proc input -> do
+    unTap <- keyReleased (SDL.ScancodeSpace) -< input
+    returnA -< unTap
+
+exitTrigger :: SF AppInput (Yampa.Event ())
+exitTrigger =
+  proc input -> do
+    qTap <- keyPressed ScancodeQ -< input
+    returnA -< qTap
+
+------ < Main > ------
+
+initClip :: Double
+initClip = 0
+
+gameSession :: SF AppInput Game
+gameSession = proc input -> do
+    timer <- stateReleased initClip -< input
+    returnA -< Game timer
+
+game :: SF AppInput Game
+game = switch sf (\_ -> game)
+    where sf = proc input -> do
+                    gameState <- gameSession -< input
+                    gameOver <- exitTrigger -< input
+                    returnA -< (gameState, gameOver)
+
+render :: Game -> Game
+-- render (Game clip) = Game
+render = id -- TODO
+
+handleExit :: SF AppInput Bool
+handleExit = quitEvent >>^ isEvent
 
 main :: IO ()
-main = C.withSDL $ C.withSDLImage $ do
-  C.setHintQuality
-  C.withWindow "Sp00derman" (640, 480) $ \w ->
-    C.withRenderer w $ \r -> do
-      t <- C.loadTextureWithInfo r "./assets/mouse_states.png"
-
-      let doRender = renderWorld r t
-
-      _ <- iterateUntilM
-        exiting
-        (\x ->
-          updateWorld x <$> SDL.pollEvents
-          >>= \x' -> x' <$ doRender x'
-        )
-        initialWorld
-
-      SDL.destroyTexture (fst t)
-
-
-updateWorld :: World -> [SDL.Event] -> World
-updateWorld w
-  = foldl' (flip applyIntent) w
-  . fmap (payloadToIntent . SDL.eventPayload)
-
-
-payloadToIntent :: SDL.EventPayload -> Intent
-payloadToIntent SDL.QuitEvent            = Quit
-payloadToIntent (SDL.MouseMotionEvent e) = motionIntent e
-payloadToIntent (SDL.MouseButtonEvent e) = buttonIntent e
-payloadToIntent _                        = Idle
-
-
-motionIntent :: SDL.MouseMotionEventData -> Intent
-motionIntent e = Hover q
-  where
-    q = selectQuadrant x y
-    (SDL.P (SDL.V2 x y)) = SDL.mouseMotionEventPos e
-
-
-  -- | SDL.mouseButtonEventMotion e == SDL.Pressed -> Down
-  --
-buttonIntent :: SDL.MouseButtonEventData -> Intent
-buttonIntent e = t q
-  where
-    q = selectQuadrant x y
-    (SDL.P (SDL.V2 x y)) = SDL.mouseButtonEventPos e
-    t = if SDL.mouseButtonEventMotion e == SDL.Pressed
-           then Press
-           else Release
-
-
-selectQuadrant :: (Num a, Ord a) => a -> a -> Quadrant
-selectQuadrant x y
-  | x <  320 && y <  240 = TopLeft
-  | x >= 320 && y <  240 = TopRight
-  | x <  320 && y >= 240 = BottomLeft
-  | x >= 320 && y >= 240 = BottomRight
-  | otherwise            = undefined
-
-
-applyIntent :: Intent -> World -> World
-applyIntent (Press q)   = pressWorld q
-applyIntent (Release q) = releaseWorld q
-applyIntent (Hover q)   = hoverWorld q
-applyIntent (Leave q)   = leaveWorld q
-applyIntent Idle        = idleWorld
-applyIntent Quit        = quitWorld
-
-
-updatePaneMap :: (Pane -> Pane) -> (Pane -> Pane) -> Quadrant -> PaneMap -> PaneMap
-updatePaneMap f g TopLeft     (PaneMap tl tr bl br) = PaneMap (f tl) (g tr) (g bl) (g br)
-updatePaneMap f g TopRight    (PaneMap tl tr bl br) = PaneMap (g tl) (f tr) (g bl) (g br)
-updatePaneMap f g BottomLeft  (PaneMap tl tr bl br) = PaneMap (g tl) (g tr) (f bl) (g br)
-updatePaneMap f g BottomRight (PaneMap tl tr bl br) = PaneMap (g tl) (g tr) (g bl) (f br)
-
-
-pressWorld :: Quadrant -> World -> World
-pressWorld q w = w { panes = panes' }
-  where panes' = updatePaneMap setDown id q (panes w)
-
-
-releaseWorld :: Quadrant -> World -> World
-releaseWorld q w = w { panes = panes' }
-  where panes' = updatePaneMap setUp id q (panes w)
-
-
-hoverWorld :: Quadrant -> World -> World
-hoverWorld q w = w { panes = panes' }
-  where panes' = updatePaneMap setOver setOut q (panes w)
-
-
-leaveWorld :: Quadrant -> World -> World
-leaveWorld q w = w { panes = panes' }
-  where panes' = updatePaneMap setOut setOver q (panes w)
-
-
-setOut :: Pane -> Pane
-setOut Down = Down
-setOut _ = Out
-
-
-setOver :: Pane -> Pane
-setOver Down = Down
-setOver Up = Up
-setOver _ = Over
-
-
-setDown :: Pane -> Pane
-setDown _ = Down
-
-
-setUp :: Pane -> Pane
-setUp Down = Up
-setUp p = p
-
-
-idleWorld :: World -> World
-idleWorld = id
-
-
-quitWorld :: World -> World
-quitWorld w = w { exiting = True }
-
-
-renderWorld :: SDL.Renderer -> (SDL.Texture, SDL.TextureInfo) -> World -> IO ()
-renderWorld r t w = do
-  SDL.clear r
-  drawWorld r t w
-  SDL.present r
-
-
-drawWorld :: SDL.Renderer -> (SDL.Texture, SDL.TextureInfo) -> World -> IO ()
-drawWorld r (t, ti) w = do
-  renderPane (topLeft     $ panes w) TopLeft
-  renderPane (topRight    $ panes w) TopRight
-  renderPane (bottomLeft  $ panes w) BottomLeft
-  renderPane (bottomRight $ panes w) BottomRight
-
-    where
-      tw :: Double
-      tw = fromIntegral $ SDL.textureWidth ti
-      th = fromIntegral $ SDL.textureHeight ti
-
-      s = C.mkRect 0 0 (tw / 2) (th / 2)
-
-      mFor c = s `moveTo` getMask c
-      pFor c = s `moveTo` getPosition c
-
-      renderPane p q
-        = SDL.copy r t
-            (Just $ floor <$> mFor p)
-            (Just $ floor <$> pFor q)
-
-
-getMask :: (Num a) => Pane -> (a, a)
-getMask Out  = (  0,   0)
-getMask Over = (320,   0)
-getMask Down = (  0, 240)
-getMask Up   = (320, 240)
-
-
-getPosition :: (Num a) => Quadrant -> (a, a)
-getPosition TopLeft     = (  0,   0)
-getPosition TopRight    = (320,   0)
-getPosition BottomLeft  = (  0, 240)
-getPosition BottomRight = (320, 240)
-
-
-moveTo :: SDL.Rectangle a -> (a, a) -> SDL.Rectangle a
-moveTo (SDL.Rectangle _ d) (x, y) = SDL.Rectangle (C.mkPoint x y) d
+main = animate
+        "Wires :("
+        (800, 600)
+        (parseWinInput >>> ((game >>^ render) &&& handleExit))
+      -- I think this is the type...
+      -- (SF (Event SDL.EventPayload) (Clip, Bool))
+      -- Clip is the game state
+      -- Bool is shouldExit
