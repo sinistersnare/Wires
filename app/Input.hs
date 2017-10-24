@@ -1,6 +1,6 @@
 module Input
     ( AppInput
-    , parseWinInput
+    , parseInput
     , mousePos
     , lbp
     , lbpPos
@@ -13,17 +13,16 @@ module Input
     , keyReleased
     , keyPressedRepeat
     , quitEvent
-    , module SDL.Input.Keyboard.Codes
-    ) where
+    , module SDL.Input.Keyboard.Codes ) where
 
-import           Data.Maybe
+import Data.Maybe
 
-import           FRP.Yampa
+import FRP.Yampa
 
-import           Linear (V2(..))
-import           Linear.Affine (Point(..))
+import Linear (V2(..))
+import Linear.Affine (Point(..))
 
-import           SDL.Input.Keyboard.Codes
+import SDL.Input.Keyboard.Codes
 import qualified SDL
 
 import Types (SenseInput)
@@ -65,6 +64,10 @@ keyPressed :: SDL.Scancode -> SF AppInput (Event ())
 keyPressed code =
   keyPress >>^ filterE (code ==) >>^ tagWith ()
 
+keyPressedRepeat :: (SDL.Scancode, Bool) -> SF AppInput (Event ())
+keyPressedRepeat (code, rep) =
+  keyPressRepeat >>^ filterE (rep ==) >>^ tagWith ()
+
 keyRelease :: SF AppInput (Event SDL.Scancode)
 keyRelease = inpKeyReleased ^>> edgeJust
 
@@ -74,10 +77,6 @@ keyReleased code =
 
 keyPressRepeat :: SF AppInput (Event Bool)
 keyPressRepeat = inpKeyRepeat ^>> (edge >>^ tagWith True)
-
-keyPressedRepeat :: (SDL.Scancode, Bool) -> SF AppInput (Event ())
-keyPressedRepeat (code, rep) =
-  keyPressRepeat >>^ filterE (rep ==) >>^ tagWith ()
 
 quitEvent :: SF AppInput (Event ())
 quitEvent = arr inpQuit >>> edge
@@ -91,23 +90,23 @@ data AppInput = AppInput
     , inpKeyReleased :: Maybe SDL.Scancode
     , inpKeyRepeat   :: Bool
     , inpQuit        :: Bool                    -- ^ SDL's QuitEvent
-    }
+    } deriving (Show)
 
 initAppInput :: AppInput
-initAppInput = AppInput { inpMousePos   = (0, 0)
-                        , inpMouseLeft  = Nothing
-                        , inpMouseRight = Nothing
-                        , inpKeyPressed = Nothing
-                        , inpKeyReleased= Nothing
-                        , inpKeyRepeat  = False
-                        , inpQuit       = False
+initAppInput = AppInput { inpMousePos    = (0, 0)
+                        , inpMouseLeft   = Nothing
+                        , inpMouseRight  = Nothing
+                        , inpKeyPressed  = Nothing
+                        , inpKeyReleased = Nothing
+                        , inpKeyRepeat   = False
+                        , inpQuit        = False
                         }
 
 
 -- | Filter and transform SDL events into events which are relevant to our
 --   application
-parseWinInput :: SF SenseInput AppInput
-parseWinInput = accumHoldBy nextAppInput initAppInput
+parseInput :: SF SenseInput AppInput
+parseInput = accumHoldBy nextAppInput initAppInput
 
 -- | Compute next input
 nextAppInput :: AppInput -> SDL.EventPayload -> AppInput
@@ -116,6 +115,12 @@ nextAppInput inp (SDL.MouseMotionEvent ev) =
     inp { inpMousePos = (fromIntegral x, fromIntegral y) }
     where P (V2 x y) = SDL.mouseMotionEventPos ev
 nextAppInput inp (SDL.KeyboardEvent ev)
+    -- Quit key pressed (Q or ESC)
+    -- | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
+    --   ( SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeQ ||
+    --     SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeEscape )
+    --   = inp { inpQuit = True }
+
     | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
       SDL.keyboardEventRepeat    ev == True
       = inp { inpKeyPressed = Just $ SDL.keysymScancode $ SDL.keyboardEventKeysym ev

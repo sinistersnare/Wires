@@ -38,6 +38,7 @@ executable wires-exe
                      , Yampa
                      , text
                      , linear
+                     , vector
   default-language:    Haskell2010
   cpp-options: -D_SDL_main_h
 
