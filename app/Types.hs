@@ -8,19 +8,22 @@ module Types
 import qualified FRP.Yampa as Yampa (Event)
 import qualified SDL (EventPayload)
 
+-- TODO: rename Game to GameState
+-- TODO: rename AppInput to GameInput
+
 data Shape =
   Circle (Double, Double) Double -- Position, Radius
   deriving (Show, Eq)
 
 data Game = Game
   {
-    stateShapes :: [Shape]
+    stateShapes :: [Shape],
+    stateQuit :: Bool
   }
   deriving (Show)
 
-
 initialGame :: Game
-initialGame = Game { stateShapes = [] }
+initialGame = Game { stateShapes = [], stateQuit = False }
 
 -- doesnt SenseInput need to give current game state?
 -- AKA wtf do signal functions do.

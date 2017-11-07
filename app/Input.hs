@@ -116,10 +116,10 @@ nextAppInput inp (SDL.MouseMotionEvent ev) =
     where P (V2 x y) = SDL.mouseMotionEventPos ev
 nextAppInput inp (SDL.KeyboardEvent ev)
     -- Quit key pressed (Q or ESC)
-    -- | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
-    --   ( SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeQ ||
-    --     SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeEscape )
-    --   = inp { inpQuit = True }
+    | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
+      ( SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeQ ||
+        SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeEscape )
+      = inp { inpQuit = True }
 
     | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
       SDL.keyboardEventRepeat    ev == True

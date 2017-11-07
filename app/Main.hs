@@ -29,8 +29,10 @@ import Types (Game(..), SenseInput, RenderOutput, initialGame, Shape(..)) -- TOD
   -   Or maybe the game state, that we need to turn into
         A list of objects to render?
         Depends on how SFs work I think
-  -
+  - Make a time-step instead of 100%CPU rendering?
 -}
+
+
 
 openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
 openWindow title (sizeX, sizeY) = do
@@ -67,6 +69,7 @@ animate title (width, height) sf = do
     (\_ -> do
       polledEvent <- SDL.pollEvent
       currentTime <- SDL.time
+      -- FIXME should dt be fixed to some fps? if its just 0.015 would it be better?
       dt <- (currentTime -) <$> swapMVar lastInteraction currentTime
       return (dt, Yampa.Event . SDL.eventPayload <$> polledEvent))
     (\_ (state, shouldExit) -> do
@@ -141,36 +144,61 @@ exitTrigger =
     escTap <- keyPressed ScancodeEscape -< input
     returnA -< lMerge qTap escTap
 
------- < Logic > ------
 
-gameSession :: SF AppInput Game
-gameSession = proc input -> do
-    returnA -< initialGame
 
-game :: SF AppInput Game
-game = switch gameNotOver gameOver
-    where
-      gameNotOver = proc input -> do
-        gameState <- gameSession -< input
-        isGameOver <- exitTrigger -< input
-        returnA -< (gameState, isGameOver)
-      -- gameOver called when gameOver ^^ is Event, usually its NoEvent
-      gameOver _ = proc input -> do
-        let circ = Circle (100, 100) 50
-        let state = initialGame { stateShapes = [circ] }
-        returnA -< state
+-- This is the amount of time that the game should take to quit
+-- after `quitTime` seconds, the game is free to quit.
+quitTime :: Double
+quitTime = 2
 
-render :: Game -> Game
-render = id
-        -- maybePos <- lbpPos -< input
-        -- let shapes = if isEvent maybePos then [Circle (fromEvent maybePos) 25] else (stateShapes gameState)
-        -- let newState = gameState {stateShapes = shapes}
+quitGame :: Yampa.Time -> Game -> SF Game Bool
+quitGame qt stateAtQuit = switch (Yampa.constant False &&& after qt ()) (\_ -> Yampa.constant True)
 
-handleExit :: SF AppInput Bool
-handleExit = quitEvent >>^ isEvent
+-- While we are waiting to quit, tell it not to quit. (False)
+-- After the quitTime seconds are done, then quit (return True).
+-- This seems like duplicating functionality, 2 different 'quits'
+-- But I think the idea is that there is a 'quit' as in 'lost'
+--   and there is a 'quit' as in what to do after the game is finished (restart or end simulation).
+handleExit :: SF Game Bool
+handleExit = switch (Yampa.constant False &&& quitOrLost) (quitGame quitTime)
+
+gameOver :: Game -> SF AppInput Game
+gameOver stateAtQuit = proc input -> do
+  let circ = Circle (250, 250) 100
+  let state = stateAtQuit { stateShapes = (circ:(stateShapes stateAtQuit)) } -- FIXME: ugly
+  returnA -< state
+
+-- TODO: figure out types for first arg of switch... why is identity needed?
+wholeGame :: SF AppInput Game
+wholeGame = switch ((runGame initialGame) >>> (Yampa.identity &&& quitOrLost)) gameOver
+
+-- | Run the game, keeping the internal state using dHold, updating the
+-- game state based on user's input (if any)
+runGame :: Game -> SF AppInput Game
+runGame state = proc input -> do
+  rec currentState <- dHold state -< gameUpdated
+      gameUpdated <- update -< (input, currentState)
+  returnA -< currentState
+
+update :: SF (AppInput, Game) (Yampa.Event Game)
+update = proc (input, gameState) -> do
+  didQuit <- Input.quitEvent -< input
+  let newState = gameState { stateQuit = (isEvent didQuit) }
+  returnA -< (Yampa.Event newState)
+
+-- look at outOfMoves from 2048/Game.hs
+-- Return an event when we want to quit I think.
+-- Switch works such that when an event is given, the switch activates.
+-- So return NoEvent until (quit) is true. The event is given to the switch.
+quitOrLost :: SF Game (Yampa.Event Game)
+quitOrLost = proc gameState -> do
+  let quit = stateQuit gameState
+  let ev = (Yampa.Event gameState) `gate` (quit)
+  returnA -< ev -- (Yampa.Event s)
 
 gameLoop :: SF (Yampa.Event SDL.EventPayload) (Game, Bool)
-gameLoop = parseInput >>> ((game >>^ render) &&& handleExit)
+gameLoop = parseInput >>> wholeGame >>> (Yampa.identity &&& handleExit)
+
 
 ------ < Main > ------
 
@@ -179,3 +207,13 @@ main = animate
         "Wires :("
         (800, 600)
         gameLoop
+
+
+
+
+{- DONT UNDERSTAND
+  Why `identity` is neede in wholeGame.
+  Why `tag` is necessary, just make a new event??
+      I guess if its NoEvent itll stay NoEvent, but if its Event itll replace??
+ -}
+
