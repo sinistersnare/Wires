@@ -12,69 +12,61 @@ import SDL (($=))
 import qualified SDL
 import SDL.Image (loadTexture)
 import SDL.Vect (Point(..))
+import qualified SDL.Video.OpenGL as GL
 import Linear (V4(..), V2(..))
 
-import Input
-
-import Types (GameState(..), SenseInput, RenderOutput, initialGame, Shape(..), Player(..)) -- TODO
-
+import Input (GameInput, parseInput)
+import qualified Input
+import SDLData (SDLData(..), destroySDLData)
+import Types (GameState(..),
+              SenseInput, RenderOutput,
+              initialGame, Shape(..), Player(..),
+              getPlayerPos, drawPlayer)
 
 {-
   ## Main Game Code ##
-  - Need to flesh out senseInput
-  - Need to flesh out everything
-  - How should game state look?
+  TODO:
   -- Give update a deltaTime instead of a fixed timeStep????
     https://wiki.haskell.org/Yampa/reactimate check the Example section for howto
   -- hitting EXIT button goes thru my game and makes it wait a few seconds before exiting
       Should use a different system between my 'quit' and real quit.
-
-  -- SDL.Video.Renderer.copyEx to rotate texxxtures
   -- TODO: Sprite class (model after LibGDX Sprite.java)
 -}
 
-openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
+createSDLData :: Text -> (CInt, CInt) -> IO SDLData
+createSDLData title (sizeX, sizeY) = do
+  (window, ctx) <- openWindow title (sizeX, sizeY)
+  renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
+  return SDLData { sdlRenderer = renderer , sdlWindow = window , sdlContext = ctx}
+
+
+openWindow :: Text -> (CInt, CInt) -> IO (SDL.Window, GL.GLContext)
 openWindow title (sizeX, sizeY) = do
   SDL.initializeAll
   SDL.HintRenderScaleQuality $= SDL.ScaleNearest
 
-  window <- SDL.createWindow
-            title
-            SDL.defaultWindow { SDL.windowInitialSize = V2 sizeX sizeY,
-                                  SDL.windowOpenGL = Just SDL.defaultOpenGL }
+  window <- SDL.createWindow title
+            SDL.defaultWindow { SDL.windowInitialSize = V2 sizeX sizeY
+                              , SDL.windowOpenGL = Just SDL.defaultOpenGL
+                              , SDL.windowResizable = True}
   SDL.showWindow window
-  -- FIXME: dont we need to destroy the created context at the end of use?
-  --        SDL doesnt have a destroyContext function sooo
-  void $ SDL.glCreateContext window
-  return window
+  ctx <- SDL.glCreateContext window
+  return (window, ctx)
 
-closeGame :: SDL.Window -> SDL.Renderer -> IO ()
-closeGame window renderer = do
-  SDL.destroyWindow window
-  SDL.destroyRenderer renderer
+closeGame :: SDLData -> IO ()
+closeGame sdlData = do
+  destroySDLData sdlData
   SDL.quit
 
 -- refresh time in milliseconds
 refreshTime' :: Integer
 refreshTime' = 15
-
 -- refresh time in seconds
 -- ## !! This will be the delta time used in physics calculations !! ##
 refreshTime :: Double
 refreshTime = fromInteger refreshTime' * 10^^(-3)
 
-{-
-    ##in animate:
-    lastInteraction <- newMVar =<< SDL.time
-    ##in sense function:
-    polledEvent <- SDL.pollEvent
-    currentTime <- SDL.time
-    dt <- return refreshTime -- (currentTime -) <$> swapMVar lastInteraction currentTime
-    ##
-    this gives a delta time, but how do we get that into `update`???
--}
-
-sense :: Bool -> IO (DTime, Maybe (Yampa.Event SDL.EventPayload))
+sense :: Bool -> IO (DTime, Maybe SenseInput)
 sense _ = do
   polledEvent <- SDL.pollEvent
   return (refreshTime, Yampa.Event . SDL.eventPayload <$> polledEvent)
@@ -98,11 +90,7 @@ renderGame state renderer = do
       Just (SDL.Rectangle
             (P (V2 (CInt $ round x) (CInt $ round y)))
             (V2 (CInt $ round rad) (CInt $ round rad))))
-  let P (V2 x y) = (playerPos $ statePlayer $ state)
-  SDL.fillRect renderer $
-      Just (SDL.Rectangle
-            (P (V2 (round x) (round y)))
-            (V2 (CInt $ round 50) (CInt $ round 100)))
+  drawPlayer renderer $ statePlayer state
   when (stateQuit state) $ do
     SDL.rendererDrawColor renderer $= V4 255 0 0 255
     SDL.fillRect renderer $
@@ -110,15 +98,14 @@ renderGame state renderer = do
               (P $ V2 (round 0) (round 0))
               (V2 (round 100) (round 100)))
 
-animate :: Text -> (CInt, CInt) -> SF SenseInput RenderOutput -> IO ()
-animate title (width, height) sf = do
-  window <- openWindow title (width, height)
-  renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
+animate :: SDLData -> SF SenseInput RenderOutput -> IO ()
+animate sdlData sf = do
+  let renderer = sdlRenderer sdlData
   reactimate (return NoEvent) sense (actuate renderer) sf
-  closeGame window renderer
+  closeGame sdlData
 
--- | Run the game, keeping the internal state using dHold, updating the
--- game state based on user's input (if any)
+-- Run the game, keeping the internal state using dHold, updating the
+--   game state based on user's input (if any)
 runGame :: GameState -> SF GameInput GameState
 runGame state = proc input -> do
   rec currentState <- dHold state -< gameUpdated
@@ -147,8 +134,8 @@ updateCircle shp@(Circle (P (V2 x y)) rad) =
     then Nothing
     else Just $ Circle (P $ V2 x (y + (10 * refreshTime))) rad
 
-gameLoop :: SF (Yampa.Event SDL.EventPayload) (GameState, Bool)
-gameLoop = parseInput >>> wholeGame >>> (Yampa.identity &&& handleExit)
+gameLoop :: SDLData -> SF (Yampa.Event SDL.EventPayload) (GameState, Bool)
+gameLoop sdlData = parseInput >>> (wholeGame sdlData) >>> (Yampa.identity &&& handleExit)
 
 -- This is the amount of time that the game should take to quit
 -- after `quitTime` seconds, the game is free to quit.
@@ -172,25 +159,30 @@ quitOrLost = proc gameState -> do
 -- This seems like duplicating functionality, 2 different 'quits'
 -- But I think the idea is that there is a 'quit' as in 'lost'
 --   and there is a 'quit' as in what to do after the game is finished (restart or end simulation).
+-- this one is quit as in finished (restart or end simulation)
 handleExit :: SF GameState Bool
 handleExit = switch (Yampa.constant False &&& quitOrLost) (quitGame quitTime)
 
+-- this one is quit as in 'lost'
 gameOver :: GameState -> SF GameInput GameState
 gameOver stateAtQuit = proc input -> do
   -- things to do when gameOver happens.
   returnA -< stateAtQuit
 
-wholeGame :: SF GameInput GameState
-wholeGame = switch ((runGame initialGame) >>> (Yampa.identity &&& quitOrLost)) gameOver
-
+wholeGame :: SDLData -> SF GameInput GameState
+wholeGame sdlData =
+  switch ((runGame $ initialGame sdlData)
+           >>> (Yampa.identity &&& quitOrLost))
+    gameOver
+-- FIXME wat do with sdlData
 
 ------ < Main > ------
 
 main :: IO ()
-main = animate
-        "Wires :("
-        (gameWidth, gameHeight)
-        gameLoop
+main = do
+  sdlData <- createSDLData "Wires :(" (gameWidth, gameHeight)
+  animate sdlData $ gameLoop sdlData
+
 
 gameWidth :: Num a => a
 gameWidth = 800

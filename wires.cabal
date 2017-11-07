@@ -28,6 +28,8 @@ executable wires-exe
   other-modules:
                        Input
                      , Types
+                     , Sprite
+                     , SDLData
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O2
 
   build-depends:       base

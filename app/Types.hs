@@ -4,39 +4,56 @@ module Types
   , RenderOutput
   , initialGame
   , Shape(..)
-  , Player(..)) where
+  , Player(..)
+  , getPlayerPos
+  , drawPlayer) where
 
-
+import Sprite (spriteFromFilePath, Sprite(..), drawSprite)
+import SDLData (SDLData(..), destroySDLData)
 import qualified FRP.Yampa as Yampa (Event)
-import qualified SDL (EventPayload)
+import SDL (EventPayload)
+import qualified SDL
 import SDL.Vect (Point(..))
 import Linear (V2(..))
 
 data Shape =
-  Circle (Point V2 Double) Double -- Position, Radius
+  Circle (Point V2 Double) Double
   deriving (Show, Eq)
 
 -- TODO: possible 'ugrade?' where you can have a 3rd wire? Would want `playerWires :: [V2]` then
-data Player = Player
-  {
-    playerPos :: Point V2 Double,
-    playerWire1 :: Maybe (V2 Double),
-    playerWire2 :: Maybe (V2 Double)
-  }
-  deriving (Show)
+data Player = Player {
+    playerSprite :: IO Sprite,
+    playerWire1 :: Maybe (V2 Int),
+    playerWire2 :: Maybe (V2 Int)
+  } -- deriving (Show) -- TODO: make Show (cant becuase Sprite)
 
-data GameState = GameState
-  {
-    statePlayer :: Player,
-    stateLevel :: [Shape],
-    stateQuit :: Bool
-  } deriving (Show)
+data GameState = GameState {
+  statePlayer :: Player,
+  stateLevel :: [Shape],
+  stateQuit :: Bool
+} -- deriving (Show) -- TODO: make Show (cant because Player)
 
-initialGame :: GameState
-initialGame = GameState { stateQuit = False , statePlayer = initialPlayer, stateLevel = [] }
+initialGame :: SDLData -> GameState
+initialGame sdlData = GameState { stateQuit = False
+                            , statePlayer = (initialPlayer (P $ V2 400 300) sdlData)
+                            , stateLevel = [] }
 
-initialPlayer :: Player
-initialPlayer = Player { playerPos = P (V2 400 300) , playerWire1 = Nothing , playerWire2 = Nothing}
+initialPlayer :: Point V2 Double -> SDLData -> Player
+initialPlayer pos sdlData = Player {
+        playerSprite = spriteFromFilePath pos (V2 50 100) (sdlRenderer sdlData) "./assets/player.png"
+      , playerWire1 = Nothing
+      , playerWire2 = Nothing }
+
+getPlayerPos :: Player -> IO (Point V2 Double)
+getPlayerPos player = do
+  sprite <- playerSprite player
+  return $ spritePos sprite
+
+drawPlayer :: SDL.Renderer -> Player -> IO ()
+drawPlayer renderer player = do
+  pl <- playerSprite player
+  drawSprite renderer pl
+  -- TODO: draw wires!?
 
 type SenseInput = Yampa.Event SDL.EventPayload
 
