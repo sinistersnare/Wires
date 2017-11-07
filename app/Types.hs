@@ -3,7 +3,8 @@ module Types
   , SenseInput
   , RenderOutput
   , initialGame
-  , Shape(..)) where
+  , Shape(..)
+  , Player(..)) where
 
 
 import qualified FRP.Yampa as Yampa (Event)
@@ -12,7 +13,7 @@ import SDL.Vect (Point(..))
 import Linear (V2(..))
 
 data Shape =
-  Circle (Double, Double) Double -- Position, Radius -- Currently drawn as a Rectangle
+  Circle (Point V2 Double) Double -- Position, Radius
   deriving (Show, Eq)
 
 -- TODO: possible 'ugrade?' where you can have a 3rd wire? Would want `playerWires :: [V2]` then
@@ -28,15 +29,14 @@ data GameState = GameState
   {
     statePlayer :: Player,
     stateLevel :: [Shape],
-    stateQuit :: Bool,
-    stateShapes :: [Shape]
+    stateQuit :: Bool
   } deriving (Show)
 
 initialGame :: GameState
-initialGame = GameState { stateShapes = [], stateQuit = False , statePlayer = initialPlayer, stateLevel = [] }
+initialGame = GameState { stateQuit = False , statePlayer = initialPlayer, stateLevel = [] }
 
 initialPlayer :: Player
-initialPlayer = Player { playerPos = P (V2 0 0) , playerWire1 = Nothing , playerWire2 = Nothing}
+initialPlayer = Player { playerPos = P (V2 400 300) , playerWire1 = Nothing , playerWire2 = Nothing}
 
 type SenseInput = Yampa.Event SDL.EventPayload
 

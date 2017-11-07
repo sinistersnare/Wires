@@ -28,7 +28,7 @@ executable wires-exe
   other-modules:
                        Input
                      , Types
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O2
 
   build-depends:       base
                      , wires
