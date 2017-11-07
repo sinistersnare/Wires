@@ -1,5 +1,5 @@
 module Input
-    ( AppInput
+    ( GameInput
     , parseInput
     , mousePos
     , lbp
@@ -13,7 +13,7 @@ module Input
     , keyReleased
     , keyPressedRepeat
     , quitEvent
-    , module SDL.Input.Keyboard.Codes ) where
+    , module SDL.Input.Keyboard.Codes) where
 
 import Data.Maybe
 
@@ -30,59 +30,59 @@ import Types (SenseInput)
 -- <| Signal Functions |> --
 
 -- | Current mouse position
-mousePos :: SF AppInput (Double,Double)
+mousePos :: SF GameInput (Double,Double)
 mousePos = arr inpMousePos
 
 -- | Events that indicate left button click
-lbp :: SF AppInput (Event ())
+lbp :: SF GameInput (Event ())
 lbp = lbpPos >>^ tagWith ()
 
 -- | Events that indicate left button click and are tagged with mouse position
-lbpPos :: SF AppInput (Event (Double,Double))
+lbpPos :: SF GameInput (Event (Double,Double))
 lbpPos = inpMouseLeft ^>> edgeJust
 
 -- | Is left button down
-lbDown :: SF AppInput Bool
+lbDown :: SF GameInput Bool
 lbDown = arr (isJust . inpMouseLeft)
 
 -- | Events that indicate right button click
-rbp :: SF AppInput (Event ())
+rbp :: SF GameInput (Event ())
 rbp = rbpPos >>^ tagWith ()
 
 -- | Events that indicate right button click and are tagged with mouse position
-rbpPos :: SF AppInput (Event (Double,Double))
+rbpPos :: SF GameInput (Event (Double,Double))
 rbpPos = inpMouseRight ^>> edgeJust
 
 -- | Is right button down
-rbDown :: SF AppInput Bool
+rbDown :: SF GameInput Bool
 rbDown = arr (isJust . inpMouseRight)
 
-keyPress :: SF AppInput (Event SDL.Scancode)
+keyPress :: SF GameInput (Event SDL.Scancode)
 keyPress = inpKeyPressed ^>> edgeJust
 
-keyPressed :: SDL.Scancode -> SF AppInput (Event ())
+keyPressed :: SDL.Scancode -> SF GameInput (Event ())
 keyPressed code =
   keyPress >>^ filterE (code ==) >>^ tagWith ()
 
-keyPressedRepeat :: (SDL.Scancode, Bool) -> SF AppInput (Event ())
+keyPressedRepeat :: (SDL.Scancode, Bool) -> SF GameInput (Event ())
 keyPressedRepeat (code, rep) =
   keyPressRepeat >>^ filterE (rep ==) >>^ tagWith ()
 
-keyRelease :: SF AppInput (Event SDL.Scancode)
+keyRelease :: SF GameInput (Event SDL.Scancode)
 keyRelease = inpKeyReleased ^>> edgeJust
 
-keyReleased :: SDL.Scancode -> SF AppInput (Event ())
+keyReleased :: SDL.Scancode -> SF GameInput (Event ())
 keyReleased code =
   keyRelease >>^ filterE (code ==) >>^ tagWith ()
 
-keyPressRepeat :: SF AppInput (Event Bool)
+keyPressRepeat :: SF GameInput (Event Bool)
 keyPressRepeat = inpKeyRepeat ^>> (edge >>^ tagWith True)
 
-quitEvent :: SF AppInput (Event ())
+quitEvent :: SF GameInput (Event ())
 quitEvent = arr inpQuit >>> edge
 
 -- | Exported as abstract type. Fields are accessed with signal functions.
-data AppInput = AppInput
+data GameInput = GameInput
     { inpMousePos    :: (Double, Double)        -- ^ Current mouse position
     , inpMouseLeft   :: Maybe (Double, Double)  -- ^ Left button currently down
     , inpMouseRight  :: Maybe (Double, Double)  -- ^ Right button currently down
@@ -92,8 +92,8 @@ data AppInput = AppInput
     , inpQuit        :: Bool                    -- ^ SDL's QuitEvent
     } deriving (Show)
 
-initAppInput :: AppInput
-initAppInput = AppInput { inpMousePos    = (0, 0)
+initGameInput :: GameInput
+initGameInput = GameInput { inpMousePos    = (0, 0)
                         , inpMouseLeft   = Nothing
                         , inpMouseRight  = Nothing
                         , inpKeyPressed  = Nothing
@@ -105,16 +105,16 @@ initAppInput = AppInput { inpMousePos    = (0, 0)
 
 -- | Filter and transform SDL events into events which are relevant to our
 --   application
-parseInput :: SF SenseInput AppInput
-parseInput = accumHoldBy nextAppInput initAppInput
+parseInput :: SF SenseInput GameInput
+parseInput = accumHoldBy nextGameInput initGameInput
 
 -- | Compute next input
-nextAppInput :: AppInput -> SDL.EventPayload -> AppInput
-nextAppInput inp SDL.QuitEvent = inp { inpQuit = True }
-nextAppInput inp (SDL.MouseMotionEvent ev) =
+nextGameInput :: GameInput -> SDL.EventPayload -> GameInput
+nextGameInput inp SDL.QuitEvent = inp { inpQuit = True }
+nextGameInput inp (SDL.MouseMotionEvent ev) =
     inp { inpMousePos = (fromIntegral x, fromIntegral y) }
     where P (V2 x y) = SDL.mouseMotionEventPos ev
-nextAppInput inp (SDL.KeyboardEvent ev)
+nextGameInput inp (SDL.KeyboardEvent ev)
     -- Quit key pressed (Q or ESC)
     | SDL.keyboardEventKeyMotion ev == SDL.Pressed &&
       ( SDL.keysymScancode (SDL.keyboardEventKeysym ev) == SDL.ScancodeQ ||
@@ -133,7 +133,7 @@ nextAppInput inp (SDL.KeyboardEvent ev)
       = inp { inpKeyPressed = Nothing
             , inpKeyRepeat  = False
             , inpKeyReleased= Just $ SDL.keysymScancode $ SDL.keyboardEventKeysym ev }
-nextAppInput inp (SDL.MouseButtonEvent ev) = inp { inpMouseLeft  = lmb
+nextGameInput inp (SDL.MouseButtonEvent ev) = inp { inpMouseLeft  = lmb
                                                  , inpMouseRight = rmb }
     where motion = SDL.mouseButtonEventMotion ev
           button = SDL.mouseButtonEventButton ev
@@ -146,4 +146,4 @@ nextAppInput inp (SDL.MouseButtonEvent ev) = inp { inpMouseLeft  = lmb
               _                                      -> id
           (lmb,rmb) = inpMod $ (inpMouseLeft &&& inpMouseRight) inp
 
-nextAppInput inp _ = inp
+nextGameInput inp _ = inp

@@ -1,32 +1,43 @@
 module Types
-  ( Game(..)
+  ( GameState(..)
   , SenseInput
   , RenderOutput
   , initialGame
   , Shape(..)) where
 
+
 import qualified FRP.Yampa as Yampa (Event)
 import qualified SDL (EventPayload)
-
--- TODO: rename Game to GameState
--- TODO: rename AppInput to GameInput
+import SDL.Vect (Point(..))
+import Linear (V2(..))
 
 data Shape =
-  Circle (Double, Double) Double -- Position, Radius
+  Circle (Double, Double) Double -- Position, Radius -- Currently drawn as a Rectangle
   deriving (Show, Eq)
 
-data Game = Game
+-- TODO: possible 'ugrade?' where you can have a 3rd wire? Would want `playerWires :: [V2]` then
+data Player = Player
   {
-    stateShapes :: [Shape],
-    stateQuit :: Bool
+    playerPos :: Point V2 Double,
+    playerWire1 :: Maybe (V2 Double),
+    playerWire2 :: Maybe (V2 Double)
   }
   deriving (Show)
 
-initialGame :: Game
-initialGame = Game { stateShapes = [], stateQuit = False }
+data GameState = GameState
+  {
+    statePlayer :: Player,
+    stateLevel :: [Shape],
+    stateQuit :: Bool,
+    stateShapes :: [Shape]
+  } deriving (Show)
 
--- doesnt SenseInput need to give current game state?
--- AKA wtf do signal functions do.
+initialGame :: GameState
+initialGame = GameState { stateShapes = [], stateQuit = False , statePlayer = initialPlayer, stateLevel = [] }
+
+initialPlayer :: Player
+initialPlayer = Player { playerPos = P (V2 0 0) , playerWire1 = Nothing , playerWire2 = Nothing}
+
 type SenseInput = Yampa.Event SDL.EventPayload
 
-type RenderOutput = (Game, Bool)
+type RenderOutput = (GameState, Bool)
