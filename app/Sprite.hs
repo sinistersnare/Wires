@@ -18,6 +18,12 @@ data Sprite = Sprite {
   spriteRenderer :: SDL.Renderer
 }
 
+instance Show Sprite where
+  show sprite =
+    let (P (V2 x y)) = spritePos sprite in
+    let (V2 width height) = spriteDims sprite in
+    "<Sprite: x: " ++ (show x) ++ ", y: " ++ (show y) ++ ", width: " ++ (show width) ++ ", height: " ++ (show height) ++ ">"
+
 spriteFromFilePath :: Point V2 Double -> V2 Double -> SDL.Renderer -> FilePath -> IO Sprite
 spriteFromFilePath pos dimensions rnd file = do
   tex <- loadTexture rnd file
@@ -33,7 +39,6 @@ drawSprite :: SDL.Renderer -> Sprite -> IO ()
 drawSprite renderer sprite = do
   let (P (V2 x y)) = spritePos sprite
   let texBounds = getSpriteBounds sprite
-  putStrLn $ show $ "spritePos:: " ++ show texBounds
   SDL.copy renderer (spriteTex sprite) Nothing (Just texBounds) -- Nothing $ Just $ SDL.Rectangle (P (V2 400 300)) (V2 100 50)
 
 destroySprite :: IO Sprite -> IO ()

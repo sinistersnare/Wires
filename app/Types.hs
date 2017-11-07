@@ -16,22 +16,28 @@ import qualified SDL
 import SDL.Vect (Point(..))
 import Linear (V2(..))
 
+{-
+  TODO:
+    - If we can make playerSprite :: Sprite, meaning the IO will be contained inside Sprite (spriteTex :: IO Texture),
+        then we can implement Show for Player and GameState much easier.
+-}
+
 data Shape =
   Circle (Point V2 Double) Double
   deriving (Show, Eq)
 
 -- TODO: possible 'ugrade?' where you can have a 3rd wire? Would want `playerWires :: [V2]` then
 data Player = Player {
-    playerSprite :: IO Sprite,
-    playerWire1 :: Maybe (V2 Int),
-    playerWire2 :: Maybe (V2 Int)
-  } -- deriving (Show) -- TODO: make Show (cant becuase Sprite)
+  playerSprite :: IO Sprite,
+  playerWire1 :: Maybe (V2 Int),
+  playerWire2 :: Maybe (V2 Int)
+}
 
 data GameState = GameState {
   statePlayer :: Player,
   stateLevel :: [Shape],
   stateQuit :: Bool
-} -- deriving (Show) -- TODO: make Show (cant because Player)
+}
 
 initialGame :: SDLData -> GameState
 initialGame sdlData = GameState { stateQuit = False
