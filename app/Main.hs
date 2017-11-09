@@ -7,13 +7,17 @@ import Control.Concurrent (newMVar, swapMVar)
 import Control.Monad
 import Data.Text (Text, isSuffixOf)
 import Foreign.C.Types (CInt(..))
-import FRP.Yampa as Yampa
 import SDL (($=))
 import qualified SDL
 import SDL.Image (loadTexture)
 import SDL.Vect (Point(..))
 import qualified SDL.Video.OpenGL as GL
 import Linear (V4(..), V2(..))
+import FRP.Yampa (lMerge, SF, reactimate
+                , dHold, returnA, isEvent
+                , (>>>), (&&&), switch, after
+                , gate, fromEvent)
+import qualified FRP.Yampa as Yampa
 
 import Input (GameInput, parseInput)
 import qualified Input
@@ -21,13 +25,16 @@ import SDLData (SDLData(..), destroySDLData)
 import Types (GameState(..),
               SenseInput, RenderOutput,
               initialGame, Shape(..), Player(..),
-              getPlayerPos, drawPlayer)
+              playerGetPos, drawPlayer, drawLevel,
+              Wire(..), createWire, updateWire)
+
+import Debug.Trace
 
 {-
   ## Main Game Code ##
   TODO:
   -- Give update a deltaTime instead of a fixed timeStep????
-    https://wiki.haskell.org/Yampa/reactimate check the Example section for howto
+    https://wiki.haskell.org/Yampa/reactimate#Example check the Example section for howto
   -- hitting EXIT button goes thru my game and makes it wait a few seconds before exiting
       Should use a different system between my 'quit' and real quit.
   -- TODO: Sprite class (model after LibGDX Sprite.java)
@@ -38,7 +45,6 @@ createSDLData title (sizeX, sizeY) = do
   (window, ctx) <- openWindow title (sizeX, sizeY)
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
   return SDLData { sdlRenderer = renderer , sdlWindow = window , sdlContext = ctx}
-
 
 openWindow :: Text -> (CInt, CInt) -> IO (SDL.Window, GL.GLContext)
 openWindow title (sizeX, sizeY) = do
@@ -61,21 +67,20 @@ closeGame sdlData = do
 -- refresh time in milliseconds
 refreshTime' :: Integer
 refreshTime' = 15
+
 -- refresh time in seconds
 -- ## !! This will be the delta time used in physics calculations !! ##
 refreshTime :: Double
 refreshTime = fromInteger refreshTime' * 10^^(-3)
 
-sense :: Bool -> IO (DTime, Maybe SenseInput)
+sense :: Bool -> IO (Yampa.DTime, Maybe SenseInput)
 sense _ = do
   polledEvent <- SDL.pollEvent
   return (refreshTime, Yampa.Event . SDL.eventPayload <$> polledEvent)
 
 actuate :: SDL.Renderer -> Bool -> (GameState, Bool) -> IO Bool
 actuate renderer _ (state, shouldExit) = do
-  let r = 0
-      g = 0
-      b = 255
+  let (r, g, b) = (75,0,130)
   SDL.rendererDrawColor renderer $= V4 r g b 255
   SDL.clear renderer
   SDL.rendererDrawColor renderer $= V4 0 0 0 255
@@ -85,11 +90,7 @@ actuate renderer _ (state, shouldExit) = do
 
 renderGame :: GameState -> SDL.Renderer -> IO ()
 renderGame state renderer = do
-  forM_ (stateLevel state) (\(Circle (P (V2 x y)) rad) ->
-    SDL.fillRect renderer $
-      Just (SDL.Rectangle
-            (P (V2 (CInt $ round x) (CInt $ round y)))
-            (V2 (CInt $ round rad) (CInt $ round rad))))
+  drawLevel renderer $ stateLevel state
   drawPlayer renderer $ statePlayer state
   when (stateQuit state) $ do
     SDL.rendererDrawColor renderer $= V4 255 0 0 255
@@ -101,7 +102,7 @@ renderGame state renderer = do
 animate :: SDLData -> SF SenseInput RenderOutput -> IO ()
 animate sdlData sf = do
   let renderer = sdlRenderer sdlData
-  reactimate (return NoEvent) sense (actuate renderer) sf
+  reactimate (return Yampa.NoEvent) sense (actuate renderer) sf
   closeGame sdlData
 
 -- Run the game, keeping the internal state using dHold, updating the
@@ -116,23 +117,30 @@ update :: SF (GameInput, GameState) (Yampa.Event GameState)
 update = proc (input, gameState) -> do
   didQuit <- Input.quitEvent -< input
   mousePos <- Input.lbpPos -< input
-  let curShapes = stateLevel gameState
-  let newCircles = updateShapes $ doIfEvent
-                                    (\(x, y) -> (Circle (P $ V2 x y) 15):(curShapes))
-                                    curShapes mousePos
 
-  let newState = gameState { stateQuit = (isEvent didQuit) , stateLevel = newCircles}
+  let player = statePlayer gameState
+  let added = fmap (addWire player) mousePos
+  let updated = updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))
+  let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
+
   returnA -< (Yampa.Event newState)
 
--- Updates all current shapes
-updateShapes :: [Shape] -> [Shape]
-updateShapes shapes = mapMaybe updateCircle shapes
+updatePlayer :: Player -> Player
+updatePlayer player =
+  let newWires = map (flip updateWire refreshTime) (playerWires player) in
+  player { playerWires = newWires }
 
-updateCircle :: Shape -> Maybe Shape
-updateCircle shp@(Circle (P (V2 x y)) rad) =
-  if x > gameWidth || x < 0 || y > gameHeight || y < 0
-    then Nothing
-    else Just $ Circle (P $ V2 x (y + (10 * refreshTime))) rad
+addWire :: Player -> (Double, Double) -> Player
+addWire player (wx, wy) =
+  let wires = trace ("updating:: " ++ (show player)) $ playerWires player in
+  let (P (V2 px py)) = playerGetPos player in
+  let dir = normalize $ V2 (wx - px) (wy - py) in -- not actually good, should shoot out from hands, not playerPos.
+  let wire = createWire player dir in
+  if (length wires) < (playerMaxWires player)
+    then player { playerWires = (wire:wires) }
+    else
+      player { playerWires = (wire:(sinit wires)) }
+
 
 gameLoop :: SDLData -> SF (Yampa.Event SDL.EventPayload) (GameState, Bool)
 gameLoop sdlData = parseInput >>> (wholeGame sdlData) >>> (Yampa.identity &&& handleExit)
@@ -174,15 +182,16 @@ wholeGame sdlData =
   switch ((runGame $ initialGame sdlData)
            >>> (Yampa.identity &&& quitOrLost))
     gameOver
--- FIXME wat do with sdlData
 
 ------ < Main > ------
 
 main :: IO ()
 main = do
-  sdlData <- createSDLData "Wires :(" (gameWidth, gameHeight)
+  sdlData <- createSDLData gameTitle (gameWidth, gameHeight)
   animate sdlData $ gameLoop sdlData
 
+gameTitle :: Text
+gameTitle = "Wires! ... :("
 
 gameWidth :: Num a => a
 gameWidth = 800
@@ -190,11 +199,19 @@ gameWidth = 800
 gameHeight :: Num a => a
 gameHeight = 600
 
+
+
 ------ < Utility > ------
 
--- Calls the function on the events value if the event exists
---  if the event does not exist, then the default is taken (the second arg)
---  if the event exists, nothing is done with the second argument.
-doIfEvent :: (a -> b) -> b -> Yampa.Event a -> b
-doIfEvent _ def NoEvent = def
-doIfEvent f _ (Yampa.Event v) = f v
+-- safe init, or sin-init
+-- returns [] on an empty list
+-- (re-implementation of Haskell's init)
+sinit :: [a] -> [a]
+sinit [] =  []
+sinit (x:[]) = []
+sinit (x:xs) = x:(sinit xs)
+
+normalize :: V2 Double -> V2 Double
+normalize (V2 x y) = V2 (x / mag) (y / mag)
+  where
+    mag = sqrt $ (x^^2) + (y^^2)
