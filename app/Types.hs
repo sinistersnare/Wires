@@ -112,6 +112,14 @@ drawPlayer renderer player = do
   drawSprite renderer sprite
   forM_ (playerWires player) (drawWire renderer player)
 
+isColliding :: Wire -> [Shape] -> Bool
+isColliding w [] = False
+isColliding w ((Rect P(V2 x y) (V2 l h)):ss) = 
+  let (SDL.Rectangle (P (V2 wx wy)) (V2 ww wh)) = spriteGetBounds (wireSprite w) in
+  if wx >= x && wx <= x + l && wy >= y && wy <= y + h
+    then True 
+    else
+      isColliding ((spriteFromFilePath pos ps rnd pth) w mwires wiretex xvel yvel)) ss
 
 -- might not draw size correctly, something something pythagoreas
 -- get bounds and resize, then angle? or vice-versa?
@@ -122,12 +130,10 @@ drawWire renderer player wire =
   let (SDL.Rectangle (P pos@(V2 x y)) (V2 w h)) = spriteGetBounds ws in
   let liveTime = wireLiveTime wire in
   let dir@(V2 dx dy) = wireDirection wire :: V2 Double in
-  let newSize = if y - h < 70
+  let newSize = if isColliding wire (stateLevel GameState)
     then V2 w h
-    else if y - h < 75
-      then V2 (w + 25) (h + 25)
-      else
-        V2 (liveTime * dx + dx) (liveTime * dy + dy) in
+    else
+      V2 (liveTime * dx + dx) (liveTime * dy + dy) in
   let newBounds = SDL.Rectangle (playerGetPos player) newSize in
   let ang = getAngle (fmap fromIntegral pos) dir in -- pos is CInt we need Double...
   let ws' = spriteSetBounds ws newBounds in

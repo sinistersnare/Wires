@@ -26,7 +26,7 @@ import Types (GameState(..),
               SenseInput, RenderOutput,
               initialGame, Shape(..), Player(..),
               playerGetPos, drawPlayer, drawLevel,
-              Wire(..), createWire, updateWire)
+              Wire(..), createWire, updateWire, isColliding)
 
 import Debug.Trace
 
@@ -120,8 +120,8 @@ update = proc (input, gameState) -> do
 
   let player = statePlayer gameState
   let added = fmap (addWire player) mousePos
-  let wires = playerWires player
-  let updated = updatePlayerPos (updatePlayerVel (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))) (isColliding wires))
+  let (w:ws) = playerWires player
+  let updated = updatePlayerPos (updatePlayerVel (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))) (isColliding w (stateLevel gameState)))
   let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
 
   returnA -< (Yampa.Event newState)
@@ -142,16 +142,6 @@ updatePlayer :: Player -> Player
 updatePlayer player =
   let newWires = map (flip updateWire refreshTime) (playerWires player) in
   player { playerWires = newWires }
-
--- Check if a wire is colliding. Can more than one wire collide? Only the first should?
-isColliding :: [Wire] -> Bool
-isColliding [] = False
-isColliding (w:ws) = 
-  let (SDL.Rectangle (P (V2 x y)) (V2 w h)) = spriteGetBounds (wireSprite w) in
-  if y - h < 100
-    then True 
-    else
-      isColliding ((spriteFromFilePath pos ps rnd pth) ws mwires wiretex xvel yvel))
 
 addWire :: Player -> (Double, Double) -> Player
 addWire player (wx, wy) =
