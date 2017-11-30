@@ -120,7 +120,8 @@ update = proc (input, gameState) -> do
 
   let player = statePlayer gameState
   let added = fmap (addWire player) mousePos
-  let updated = updatePlayerPos (updatePlayerVel (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))) (isColliding player))
+  let wires = playerWires player
+  let updated = updatePlayerPos (updatePlayerVel (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))) (isColliding wires))
   let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
 
   returnA -< (Yampa.Event newState)
@@ -128,7 +129,10 @@ update = proc (input, gameState) -> do
 -- Updates the player velocity
 updatePlayerVel :: Player -> Player
 updatePlayerVel player False = player { playerYVelocity = playerYVelocity + 9.8}
-updatePlayerVel Player((spriteFromFilePath pos ps rnd pth) wires mwires wiretex xvel yvel) True = player { playerYVelocity = playerYVelocity + 9.8 * sin (getAngle pos col), playerXVelocity = playerXVelocity + 9.8 * cos (getAngle pos col)}
+updatePlayerVel Player((spriteFromFilePath pos ps rnd pth) (w:ws) mwires wiretex xvel yvel) True = 
+  let (SDL.Rectangle (P (V2 x y)) (V2 w h)) = spriteGetBounds (wireSprite w) in
+  let colPoint = P $ V2 (x + w) (y + h) in 
+  player { playerYVelocity = playerYVelocity + 9.8 * sin (getAngle colPoint pos), playerXVelocity = playerXVelocity + 9.8 * cos (getAngle colPoint pos)}
 
 -- Updates the player position
 updatePlayerPos :: Player -> Player
@@ -139,14 +143,15 @@ updatePlayer player =
   let newWires = map (flip updateWire refreshTime) (playerWires player) in
   player { playerWires = newWires }
 
--- Check if a wire is colliding
-isColliding :: Player -> Boolean
-isColliding Player((spriteFromFilePath pos ps rnd pth) [] mwires wiretex xvel yvel) = False
-isColliding Player((spriteFromFilePath pos ps rnd pth) (w:ws) mwires wiretex xvel yvel) = let (SDL.Rectangle (P (V2 x y)) (V2 w h)) = spriteGetBounds w in
-if y - h < 100
-  then True 
-  else
-    isColliding ((spriteFromFilePath pos ps rnd pth) ws mwires wiretex xvel yvel))
+-- Check if a wire is colliding. Can more than one wire collide? Only the first should?
+isColliding :: [Wire] -> Bool
+isColliding [] = False
+isColliding (w:ws) = 
+  let (SDL.Rectangle (P (V2 x y)) (V2 w h)) = spriteGetBounds (wireSprite w) in
+  if y - h < 100
+    then True 
+    else
+      isColliding ((spriteFromFilePath pos ps rnd pth) ws mwires wiretex xvel yvel))
 
 addWire :: Player -> (Double, Double) -> Player
 addWire player (wx, wy) =

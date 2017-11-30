@@ -45,6 +45,8 @@ data Player = Player {
   playerWires :: [Wire],
   playerMaxWires :: Int,
   playerWireTex :: IO SDL.Texture
+  playerXVelocity :: Double,
+  playerYVelocity :: Double
 }
 
 data GameState = GameState {
@@ -97,6 +99,8 @@ initialPlayer pos sdlData =
     , playerWires = []
     , playerMaxWires = 2
     , playerWireTex = loadTexture rnd "./assets/wire.png"
+    , playerXVelocity = 0.0
+    , playerYVelocity = 9.8
   }
 
 playerGetPos :: Player -> Point V2 Double
@@ -118,7 +122,12 @@ drawWire renderer player wire =
   let (SDL.Rectangle (P pos@(V2 x y)) (V2 w h)) = spriteGetBounds ws in
   let liveTime = wireLiveTime wire in
   let dir@(V2 dx dy) = wireDirection wire :: V2 Double in
-  let newSize = V2 (liveTime * dx + dx) (liveTime * dy + dy) in
+  let newSize = if y - h < 70
+    then V2 w h
+    else if y - h < 75
+      then V2 (w + 25) (h + 25)
+      else
+        V2 (liveTime * dx + dx) (liveTime * dy + dy) in
   let newBounds = SDL.Rectangle (playerGetPos player) newSize in
   let ang = getAngle (fmap fromIntegral pos) dir in -- pos is CInt we need Double...
   let ws' = spriteSetBounds ws newBounds in
