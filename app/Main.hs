@@ -120,15 +120,33 @@ update = proc (input, gameState) -> do
 
   let player = statePlayer gameState
   let added = fmap (addWire player) mousePos
-  let updated = updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))
+  let updated = updatePlayerPos (updatePlayerVel (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))) (isColliding player))
   let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
 
   returnA -< (Yampa.Event newState)
+
+-- Updates the player velocity
+updatePlayerVel :: Player -> Player
+updatePlayerVel player False = player { playerYVelocity = playerYVelocity + 9.8}
+updatePlayerVel Player((spriteFromFilePath pos ps rnd pth) wires mwires wiretex xvel yvel) True = player { playerYVelocity = playerYVelocity + 9.8 * sin (getAngle pos col), playerXVelocity = playerXVelocity + 9.8 * cos (getAngle pos col)}
+
+-- Updates the player position
+updatePlayerPos :: Player -> Player
+updatePlayer Player((spriteFromFilePath (P (V2 x y)) ps rnd pth) wires mwires wiretex xvel yvel) = Player((spriteFromFilePath (P $ V2 (x + xvel) (y + yvel)) ps rnd pth) wires mwires wiretex xvel yvel)
 
 updatePlayer :: Player -> Player
 updatePlayer player =
   let newWires = map (flip updateWire refreshTime) (playerWires player) in
   player { playerWires = newWires }
+
+-- Check if a wire is colliding
+isColliding :: Player -> Boolean
+isColliding Player((spriteFromFilePath pos ps rnd pth) [] mwires wiretex xvel yvel) = False
+isColliding Player((spriteFromFilePath pos ps rnd pth) (w:ws) mwires wiretex xvel yvel) = let (SDL.Rectangle (P (V2 x y)) (V2 w h)) = spriteGetBounds w in
+if y - h < 100
+  then True 
+  else
+    isColliding ((spriteFromFilePath pos ps rnd pth) ws mwires wiretex xvel yvel))
 
 addWire :: Player -> (Double, Double) -> Player
 addWire player (wx, wy) =
