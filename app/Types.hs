@@ -75,6 +75,7 @@ createWire player dir =
 updateWire :: Wire -> Double -> Wire
 updateWire wire addTime = wire { wireLiveTime = ((wireLiveTime wire) + addTime) }
 
+-- destroys player
 destroyPlayer :: Player -> IO ()
 destroyPlayer p = do
   destroySprite $ playerSprite p
@@ -118,7 +119,7 @@ drawWire renderer player wire =
   let (SDL.Rectangle (P pos@(V2 x y)) (V2 w h)) = spriteGetBounds ws in
   let liveTime = wireLiveTime wire in
   let dir@(V2 dx dy) = wireDirection wire :: V2 Double in
-  let newSize = V2 (liveTime * dx + dx) (liveTime * dy + dy) in
+  let newSize = V2 (fromIntegral w) (liveTime * dy + (fromIntegral h)) in
   let newBounds = SDL.Rectangle (playerGetPos player) newSize in
   let ang = getAngle (fmap fromIntegral pos) dir in -- pos is CInt we need Double...
   let ws' = spriteSetBounds ws newBounds in
