@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE ScopedTypeVariables #-}
 module Types
   ( GameState(..)
   , SenseInput
@@ -12,7 +12,12 @@ module Types
   , drawLevel
   , Wire(..)
   , createWire
-  , updateWire) where
+  , updateWire
+  , isColliding
+  , getAngle
+  , playerGetBounds
+  , wireGetBounds
+  , playerSetPos) where
 
 import Foreign.C.Types (CInt(..))
 import Control.Monad
@@ -27,7 +32,7 @@ import SDL.Image (loadTexture)
 import Sprite (spriteFromFilePath, Sprite(..), drawSprite,
                 destroySprite, spriteFromTex,
                 spriteGetBounds, spriteSetBounds,
-                spriteSetAngle)
+                spriteSetAngle, spriteSetPos)
 
 data Shape =
     Circle (Point V2 Double) Double
@@ -44,9 +49,9 @@ data Player = Player {
   playerSprite :: Sprite,
   playerWires :: [Wire],
   playerMaxWires :: Int,
-  playerWireTex :: IO SDL.Texture
-  playerXVelocity :: Double,
-  playerYVelocity :: Double
+  playerWireTex :: IO SDL.Texture,
+  playerVelocityX :: Double,
+  playerVelocityY :: Double
 }
 
 data GameState = GameState {
@@ -87,7 +92,7 @@ initialGame :: SDLData -> GameState
 initialGame sdlData =
   GameState { stateQuit = False
             , statePlayer = (initialPlayer (P $ V2 400 300) sdlData)
-            , stateLevel = [(Rect (P (V2 50 25)) (V2 700 50))]
+            , stateLevel = [(Rect (P (V2 50 400)) (V2 700 50))]
   }
 
 initialPlayer :: Point V2 Double -> SDLData -> Player
@@ -99,46 +104,59 @@ initialPlayer pos sdlData =
     , playerWires = []
     , playerMaxWires = 2
     , playerWireTex = loadTexture rnd "./assets/wire.png"
-    , playerXVelocity = 0.0
-    , playerYVelocity = 9.8
+    , playerVelocityX = 0.0
+    , playerVelocityY = 0.0015
   }
 
 playerGetPos :: Player -> Point V2 Double
 playerGetPos = (spritePos . playerSprite)
 
-drawPlayer :: SDL.Renderer -> Player -> IO ()
-drawPlayer renderer player = do
+playerSetPos :: Player -> Point V2 Double -> Player
+playerSetPos player@Player{playerSprite=s} newPos =
+  let s' = spriteSetPos s newPos in
+  player { playerSprite = s' }
+
+playerGetBounds :: Player -> SDL.Rectangle CInt
+playerGetBounds = spriteGetBounds . playerSprite
+
+wireGetBounds :: Wire -> SDL.Rectangle CInt
+wireGetBounds = spriteGetBounds . wireSprite
+
+drawPlayer :: SDL.Renderer -> GameState -> IO ()
+drawPlayer renderer state = do
+  let player = statePlayer state
+  let level = stateLevel state
   let sprite = playerSprite player
   drawSprite renderer sprite
-  forM_ (playerWires player) (drawWire renderer player)
+  forM_ (playerWires player) (drawWire renderer player level)
 
 isColliding :: Wire -> [Shape] -> Bool
 isColliding w [] = False
-isColliding w ((Rect P(V2 x y) (V2 l h)):ss) = 
+isColliding w ((Rect (P (V2 x y)) (V2 l h)):ss) =
   let (SDL.Rectangle (P (V2 wx wy)) (V2 ww wh)) = spriteGetBounds (wireSprite w) in
-  if wx >= x && wx <= x + l && wy >= y && wy <= y + h
-    then True 
+  if wx >= (round x) && wx <= (round $ x + l) && wy >= (round y) && wy <= (round $ y + h)
+    then True
     else
-      isColliding ((spriteFromFilePath pos ps rnd pth) w mwires wiretex xvel yvel)) ss
+      isColliding w ss
 
 -- might not draw size correctly, something something pythagoreas
 -- get bounds and resize, then angle? or vice-versa?
 -- TODO: this function is pretty gross...
-drawWire :: SDL.Renderer -> Player -> Wire -> IO ()
-drawWire renderer player wire =
+drawWire :: SDL.Renderer -> Player -> [Shape] -> Wire -> IO ()
+drawWire renderer player level wire =
   let ws = wireSprite wire in
   let (SDL.Rectangle (P pos@(V2 x y)) (V2 w h)) = spriteGetBounds ws in
   let liveTime = wireLiveTime wire in
   let dir@(V2 dx dy) = wireDirection wire :: V2 Double in
-  let newSize = if isColliding wire (stateLevel GameState)
-    then V2 w h
-    else
-      V2 (liveTime * dx + dx) (liveTime * dy + dy) in
-  let newBounds = SDL.Rectangle (playerGetPos player) newSize in
+  let newSize :: V2 CInt = if isColliding wire level
+      then V2 w h
+      else V2 (round $ liveTime * dx + dx) (round $ liveTime * dy + dy) in
+  let newBounds = SDL.Rectangle (playerGetPos player) (fmap fromIntegral newSize) in
   let ang = getAngle (fmap fromIntegral pos) dir in -- pos is CInt we need Double...
   let ws' = spriteSetBounds ws newBounds in
   let ws'' = spriteSetAngle ws' ang in
   drawSprite renderer ws''
+
 
 -- ^ Gets angle between 2 vectors. RETURNS DEGREES
 getAngle :: V2 Double -> V2 Double -> Double

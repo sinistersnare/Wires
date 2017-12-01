@@ -1,7 +1,7 @@
 module Sprite (Sprite(..), spriteFromFilePath,
               drawSprite, spriteFromTex,
               spriteSetBounds, spriteGetBounds, destroySprite,
-              spriteSetAngle) where
+              spriteSetAngle, spriteSetPos) where
 
 import SDLData (SDLData(..))
 import qualified SDL
