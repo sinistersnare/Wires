@@ -38,7 +38,6 @@ import Debug.Trace
     https://wiki.haskell.org/Yampa/reactimate#Example check the Example section for howto
   -- hitting EXIT button goes thru my game and makes it wait a few seconds before exiting
       Should use a different system between my 'quit' and real quit.
-  -- TODO: Sprite class (model after LibGDX Sprite.java)
 -}
 
 createSDLData :: Text -> (CInt, CInt) -> IO SDLData
@@ -121,7 +120,8 @@ update = proc (input, gameState) -> do
 
   let player = statePlayer gameState
   let added = fmap (addWire player) mousePos
-  let updated = updatePlayerPos (updatePlayerVelocity gameState (updatePlayer $ fromEvent $ (added `lMerge` (Yampa.Event player))))
+  let level = stateLevel gameState
+  let updated = updatePlayerPos (updatePlayerVelocity gameState (updatePlayer level $ fromEvent $ (added `lMerge` (Yampa.Event player))))
   let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
 
   returnA -< (Yampa.Event newState)
@@ -129,29 +129,32 @@ update = proc (input, gameState) -> do
 -- TODO: player velocity should be units per second,
 --    but currently it is units per frame.
 updatePlayerVelocity :: GameState -> Player -> Player
-updatePlayerVelocity gameState player@Player{playerVelocityY=vy, playerVelocityX=vx, playerSprite=s, playerWires=ws} =
-  let collided = filter (flip isColliding $ stateLevel gameState) ws in
+updatePlayerVelocity gameState player@Player{playerVelocity=(V2 vx vy), playerSprite=s, playerWires=ws} =
+  let collided = filter (flip isColliding $ stateLevel gameState) (map wireGetBounds ws) in
   if (length collided) == 0
-    then player {playerVelocityY = vy + 0.000015}
+    then
+      if isColliding (playerGetBounds player) $ stateLevel gameState
+        then (trace "HIT!!!!" $ player { playerVelocity = (V2 0 0)})
+        else player { playerVelocity = (V2 vx $ vy + 0.0005) }
     else
-      let w = head collided in
+      let wireBounds = head collided in
       let (P pos) = playerGetPos player in
-      let (SDL.Rectangle (P (V2 x y)) (V2 l h)) :: SDL.Rectangle CInt = wireGetBounds w in
+      let (SDL.Rectangle (P (V2 x y)) (V2 l h)) :: SDL.Rectangle CInt = wireBounds in
       let colPoint = V2 (x + l) (y + h) in
-      player { playerVelocityX = vx + (refreshTime) * (cos $ getAngle (fmap fromIntegral colPoint) pos)
-             , playerVelocityY = vy + (refreshTime) * (sin $ getAngle (fmap fromIntegral colPoint) pos) }
+      player { playerVelocity = V2 (vx + (refreshTime) * (cos $ getAngle (fmap fromIntegral colPoint) pos))
+                                   (vy + (refreshTime) * (sin $ getAngle (fmap fromIntegral colPoint) pos)) }
 
 
 -- TODO: when velocity becomes m/s instead of m/frame,
 --    have to do x+vx*dt and y+vy*dt
 updatePlayerPos :: Player -> Player
-updatePlayerPos player@Player{playerSprite=s, playerVelocityX=vx, playerVelocityY=vy} =
+updatePlayerPos player@Player{playerSprite=s, playerVelocity=(V2 vx vy) } =
   let pos@(P (V2 x y)) = playerGetPos player in
   playerSetPos player $ P $ V2 (x + vx) (y + vy)
 
-updatePlayer :: Player -> Player
-updatePlayer player =
-  let newWires = map (flip updateWire refreshTime) (playerWires player) in
+updatePlayer :: [Shape] -> Player -> Player
+updatePlayer level player =
+  let newWires = map (updateWire refreshTime level player) (playerWires player) in
   player { playerWires = newWires }
 
 addWire :: Player -> (Double, Double) -> Player
@@ -172,7 +175,7 @@ gameLoop sdlData = parseInput >>> (wholeGame sdlData) >>> (Yampa.identity &&& ha
 -- This is the amount of time that the game should take to quit
 -- after `quitTime` seconds, the game is free to quit.
 quitTime :: Double
-quitTime = 3
+quitTime = 0
 
 quitGame :: Yampa.Time -> GameState -> SF GameState Bool
 quitGame qt stateAtQuit = switch (Yampa.constant False &&& after qt ()) (\_ -> Yampa.constant True)

@@ -26,7 +26,12 @@ instance Show Sprite where
   show sprite =
     let (P (V2 x y)) = spritePos sprite in
     let (V2 width height) = spriteDims sprite in
-    "Sprite<x: " ++ (show x) ++ ", y: " ++ (show y) ++ ", width: " ++ (show width) ++ ", height: " ++ (show height) ++ ">"
+    let angle = spriteAngle sprite in
+    ("Sprite<x: " ++ (show x)
+      ++ ", y: " ++ (show y)
+      ++ ", width: " ++ (show width)
+      ++ ", height: " ++ (show height)
+      ++ ", angle: " ++ (show angle) ++ ">")
 
 spriteFromTex :: Point V2 Double -> V2 Double -> SDL.Renderer -> IO SDL.Texture -> Sprite
 spriteFromTex pos dims rnd tex =
