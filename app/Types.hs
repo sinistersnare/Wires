@@ -151,7 +151,6 @@ isColliding w (lb@(Rect (P (V2 sx sy)) (V2 sw sh)):ss) =
   let (bx1, by1) = (round sx, round sy) in
   let (bx2, by2) = (round $ sx+sw, round $ sy+sh) in
   let collided = ((ax1 < bx2) && (ax2 > bx1) && (ay1 < by2) && (ay2 > by1)) in
-  -- (trace (show (wsb, lb)) collided) || (isColliding w ss)
   collided || (isColliding w ss)
 
 -- might not draw size correctly, something something pythagoreas
@@ -162,20 +161,21 @@ drawWire renderer player level@(l:ls) wire@Wire{wireSprite=ws} =
   let (SDL.Rectangle pos@(P vp@(V2 x y)) size) = spriteGetBounds ws in
   let dir@(V2 dx dy) = wireDirection wire :: V2 Double in
   let newBounds = SDL.Rectangle pos (fmap fromIntegral size) in
-  -- let ang = getAngle (fmap fromIntegral vp) dir in
-  let ang = 0 in
+  let ang = getAngle (fmap fromIntegral vp) dir in
+  -- ^^ todo, figure out how angling works...
+  -- let ang = 12 in
   let ws' = spriteSetBounds ws (fmap fromIntegral newBounds) in
   let ws'' = spriteSetAngle ws' ang in
-  drawSprite  renderer ws''
+  trace (show ws'') drawSprite renderer ws''
 
 
 -- ^ Gets angle between 2 vectors. RETURNS DEGREES
 getAngle :: V2 Double -> V2 Double -> Double
-getAngle v1 v2 = toDegrees $ acos $ dot n1 n2
+getAngle v1 v2 = toDegrees $ calc n1 n2
   where
     (n1, n2) = (normalize v1, normalize v2)
-    toDegrees r = r * 180 / pi
-    dot (V2 v1x v1y) (V2 v2x v2y) = (v1x * v2x) + (v1y * v2y)
+    toDegrees r = 180 + r * 180 / pi
+    calc (V2 p1x p1y) (V2 p2x p2y) = atan2 (p2y - p1y) (p2x - p1x)
 
 drawLevel :: SDL.Renderer -> [Shape] -> IO ()
 drawLevel renderer level = do

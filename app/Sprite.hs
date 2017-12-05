@@ -12,8 +12,10 @@ import SDL.Image (loadTexture)
 import Linear (V2(..), V4(..))
 
 -- TODO: have a 'dead' field, so when destroySprite called, sprite -> unusable?
+-- Seems like that would be a correctness issue, and IDK how we would solve it
+-- aside from making all methods return a Maybe Sprite, and that would suck.
+-- (well the solution is Monads of course, but that may be ugly...)
 
--- TODO: can we make only the texture an IO? might clean up a little of the code.
 data Sprite = Sprite {
   spritePos :: Point V2 Double,
   spriteDims :: V2 Double,
@@ -65,10 +67,12 @@ spriteSetAngle sprite ang = sprite { spriteAngle = ang }
 drawSprite :: SDL.Renderer -> Sprite -> IO ()
 drawSprite renderer sprite = do
   let (P (V2 x y)) = spritePos sprite
-  let texBounds@(SDL.Rectangle (P pos) dims) = spriteGetBounds sprite
+  let texBounds@(SDL.Rectangle (P (V2 x y)) (V2 width height)) = fmap fromIntegral $ spriteGetBounds sprite
   tex <- spriteTex sprite
-  SDL.copyEx renderer tex Nothing (Just texBounds)
-             (CDouble $ spriteAngle sprite) (Just $ P pos)
+  SDL.copyEx renderer tex Nothing (Just $ fmap round texBounds)
+             (CDouble $ spriteAngle sprite)
+             (Just $ fmap round $ P (V2 (x + (width / 2)) y {- (y + (height / 2)) -}))
+             -- Nothing -- Center can be nothing
              (V2 False False)
 
 destroySprite :: Sprite -> IO ()

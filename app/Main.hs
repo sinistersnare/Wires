@@ -121,32 +121,35 @@ update = proc (input, gameState) -> do
   let player = statePlayer gameState
   let added = fmap (addWire player) mousePos
   let level = stateLevel gameState
-  let updated = updatePlayerPos (updatePlayerVelocity gameState (updatePlayer level $ fromEvent $ (added `lMerge` (Yampa.Event player))))
+  let updated = updatePlayerPos $ updatePlayerVelocity gameState $
+                  updatePlayer level $ fromEvent $ added `lMerge` (Yampa.Event player)
   let newState = gameState { stateQuit = (isEvent didQuit) , statePlayer = updated }
-
   returnA -< (Yampa.Event newState)
 
 -- TODO: player velocity should be units per second,
 --    but currently it is units per frame.
+--    Done with FRP!!!!!!!!!!!!!!!!!!!!!!
 updatePlayerVelocity :: GameState -> Player -> Player
-updatePlayerVelocity gameState player@Player{playerVelocity=(V2 vx vy), playerSprite=s, playerWires=ws} =
+updatePlayerVelocity gameState player@Player{playerVelocity=(V2 vx vy),playerSprite=s,playerWires=ws} =
   let collided = filter (flip isColliding $ stateLevel gameState) (map wireGetBounds ws) in
   if (length collided) == 0
-    then
-      if isColliding (playerGetBounds player) $ stateLevel gameState
-        then (trace "HIT!!!!" $ player { playerVelocity = (V2 0 0)})
-        else player { playerVelocity = (V2 vx $ vy + 0.0005) }
+    then if isColliding (playerGetBounds player) $ stateLevel gameState
+      then player { playerVelocity = (V2 0 0)}
+      else player { playerVelocity = (V2 vx $ vy + 0.0005) }
     else
       let wireBounds = head collided in
       let (P pos) = playerGetPos player in
       let (SDL.Rectangle (P (V2 x y)) (V2 l h)) :: SDL.Rectangle CInt = wireBounds in
       let colPoint = V2 (x + l) (y + h) in
-      player { playerVelocity = V2 (vx + (refreshTime) * (cos $ getAngle (fmap fromIntegral colPoint) pos))
-                                   (vy + (refreshTime) * (sin $ getAngle (fmap fromIntegral colPoint) pos)) }
-
+      player { playerVelocity = V2 (vx + (refreshTime * 0.1) *
+                                      (cos $ getAngle (fmap fromIntegral colPoint) pos))
+                                   (vy + (refreshTime * 0.1) *
+                                      (sin $ getAngle (fmap fromIntegral colPoint) pos)) }
 
 -- TODO: when velocity becomes m/s instead of m/frame,
 --    have to do x+vx*dt and y+vy*dt
+--    Have to use FRP correctly, says Ivan Perez :p
+--      Something like p <- (p0 ^+^) ^<< integral -< velocity
 updatePlayerPos :: Player -> Player
 updatePlayerPos player@Player{playerSprite=s, playerVelocity=(V2 vx vy) } =
   let pos@(P (V2 x y)) = playerGetPos player in
@@ -155,18 +158,19 @@ updatePlayerPos player@Player{playerSprite=s, playerVelocity=(V2 vx vy) } =
 updatePlayer :: [Shape] -> Player -> Player
 updatePlayer level player =
   let newWires = map (updateWire refreshTime level player) (playerWires player) in
-  player { playerWires = newWires }
+  let ws = filter (\w@Wire{wireLiveTime=lt} -> (lt < 5)) newWires in
+  player { playerWires = ws }
 
 addWire :: Player -> (Double, Double) -> Player
 addWire player (wx, wy) =
   let wires = {- trace ("updating:: " ++ (show player)) $ -} playerWires player in
   let (P (V2 px py)) = playerGetPos player in
-  let dir = normalize $ V2 (wx - px) (wy - py) in -- not actually good, should shoot out from hands, not playerPos.
+   -- vv not actually good, should shoot out from hands, not playerPos.
+  let dir = normalize $ V2 (wx - px) (wy - py) in
   let wire = createWire player dir in
   if (length wires) < (playerMaxWires player)
     then player { playerWires = (wire:wires) }
-    else
-      player { playerWires = (wire:(sinit wires)) }
+    else player { playerWires = (wire:(sinit wires)) }
 
 
 gameLoop :: SDLData -> SF (Yampa.Event SDL.EventPayload) (GameState, Bool)

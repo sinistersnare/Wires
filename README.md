@@ -12,7 +12,7 @@ That game is definitely better, so probably play that instead.
 3. `$ stack build` Will build the executable and put it in a folder specified by the output
 4. /that/exe/output/folder/wires should get it working...
 
-If that does not work, then I need to fix the build, because it should be _that_ simple.
+If that does not work, then I need to fix the build process, because it should be _that_ simple.
 
 ## Goals ##
 
@@ -30,6 +30,8 @@ Anyways, thanks for looking!
 ## License ##
 
 This game is free. As in beer and as in speech.
-Licensed as BSD 3-clause, feel free to use this game however you would like,
-with attribution, thank you optional.
+
+Licensed as BSD 3-clause, feel free to use this game however you would like, with attribution.
+
+Thank you optional and heartily appreciated.
 
